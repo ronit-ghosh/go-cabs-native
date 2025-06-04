@@ -10,7 +10,7 @@ import {
 import {useNavigation, RouteProp} from "@react-navigation/native";
 import {NativeStackNavigationProp} from "@react-navigation/native-stack";
 import {useRecoilValue} from "recoil"; // If needed for some global state not in socket
-import {useSocket} from "../../hooks/useSocket";
+import {SocketRideState, useSocket} from "../../hooks/useSocket";
 import {usePayment} from "../../hooks/usePayment";
 import {rideAtom} from "../../store/atoms/ride/rideAtom"; // For local Recoil state if used beyond socket
 import {userAtom} from "../../store/atoms/user/userAtom";
@@ -25,6 +25,7 @@ import {
   successColor,
   errorColor,
 } from "../../theme/colors";
+import firestore, { addDoc, collection, getFirestore } from "@react-native-firebase/firestore"
 
 // Define local color constants
 const localTextPrimaryColor = "#EAEAEA";
@@ -46,18 +47,38 @@ interface ViewBidsScreenProps {
   route: ViewBidsScreenRouteProp;
 }
 
-const ViewBidsScreen: React.FC<ViewBidsScreenProps> = ({route}) => {
+const ViewBidsScreen: React.FC<ViewBidsScreenProps> = ({ route }) => {
   const navigation = useNavigation<ViewBidsNavigationProp>();
-  const {quotationId} = route.params;
+  const { quotationId } = route.params;
 
-  const {currentRideState, selectDriver, isConnected} = useSocket();
-  const {createPaymentSession, currentSession, paymentState} = usePayment();
+  const { currentRideState, selectDriver, isConnected } = useSocket();
+  const { createPaymentSession, currentSession, paymentState } = usePayment();
   const user = useRecoilValue(userAtom);
 
   const [bids, setBids] = useState<Bid[]>([]);
   const [selectedBid, setSelectedBid] = useState<Bid | null>(null);
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const db = getFirestore()
+
+  const saveRideDataToFirestore = async (rideData: SocketRideState) => {
+    try {
+      const docRef = await addDoc(collection(db, 'rideDetails'), {
+        userId: user?.uid,
+        rideId: rideData.rideId,
+        dropoffLocation: rideData.requestDetails?.dropoffLocation,
+        pickupLocation: rideData.requestDetails?.pickupLocation,
+        selectedDriverInfo: rideData.selectedDriverInfo,
+        status: rideData.status,
+        amount: rideData.acceptedBidDetails?.amount,
+        currency: rideData.acceptedBidDetails?.currency,
+        timestamp: rideData.acceptedBidDetails?.timestamp
+      });
+      console.log("Ride data saved with ID: ", docRef.id);
+    } catch (error) {
+      console.error("Error saving ride data: ", error);
+    }
+  };
 
   useEffect(() => {
     if (
@@ -101,6 +122,8 @@ const ViewBidsScreen: React.FC<ViewBidsScreenProps> = ({route}) => {
         currentSession?.status === "completed"
       ) {
         console.log("[ViewBidsScreen] Ride confirmed with payment completed");
+        // Save ride data to Firestore
+        saveRideDataToFirestore(currentRideState);
 
         Alert.alert(
           "Payment & Ride Confirmed!",
